@@ -1,0 +1,30 @@
+{
+  "test_loss": 0.0747,
+  "accuracy_%": 97.77,
+  "precision_weighted_%": 97.77,
+  "recall_weighted_%": 97.77,
+  "f1_score_weighted_%": 97.76,
+  "num_test_images": 1300,
+  "class_names": [
+    "buena",
+    "mala",
+    "media"
+  ],
+  "confusion_matrix": [
+    [
+      396,
+      0,
+      4
+    ],
+    [
+      6,
+      197,
+      10
+    ],
+    [
+      4,
+      5,
+      678
+    ]
+  ]
+}

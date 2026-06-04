@@ -92,3 +92,5 @@ cython_debug/
 
 .DS_Store
 Thumbs.db
+/data
+processed_Fruits.zip

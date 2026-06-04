@@ -1,0 +1,18 @@
+{
+  "svm": {
+    "best_params": {
+      "C": 10,
+      "gamma": "scale",
+      "kernel": "rbf"
+    },
+    "accuracy": 0.9660624758966448
+  },
+  "random_forest": {
+    "best_params": {
+      "max_depth": 20,
+      "min_samples_split": 2,
+      "n_estimators": 200
+    },
+    "accuracy": 0.9633629001156961
+  }
+}
