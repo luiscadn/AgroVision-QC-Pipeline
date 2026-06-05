@@ -16,3 +16,10 @@ matplotlib>=3.7.0
 # ---- Notebooks ----
 jupyter>=1.0.0
 ipykernel>=6.25.0
+
+streamlit>=1.30.0
+
+pillow>=10.0.0
+
+streamlit-webrtc
+av
