@@ -208,14 +208,6 @@ def process_dataset(raw_dir: str = "data/raw", processed_dir: str = "data/proces
 
 
 if __name__ == "__main__":
-    # Si se ejecuta con el argumento --pilot, corre sobre la prueba piloto de calidad "media"
-    if len(sys.argv) > 1 and sys.argv[1] == "--pilot":
-        logger.info("Modo Piloto detectado. Procesando la subcarpeta 'src/data/raw/media'...")
-        process_dataset(
-            raw_dir="src/data/raw/media",
-            processed_dir="data/processed_pilot",
-            csv_path="experiments/results/features_traditional_ml_pilot.csv"
-        )
-    else:
-        # Por defecto corre sobre la estructura de produccion completa
-        process_dataset()
+    # Por defecto corre sobre la estructura de produccion completa
+    process_dataset()
+
