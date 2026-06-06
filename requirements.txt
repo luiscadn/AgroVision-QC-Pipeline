@@ -23,3 +23,7 @@ pillow>=10.0.0
 
 streamlit-webrtc
 av
+
+# ---- Descarga de datos (Kaggle API) ----
+kaggle>=1.6.0
+python-dotenv>=1.0.0

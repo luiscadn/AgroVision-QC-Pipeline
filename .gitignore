@@ -57,3 +57,12 @@ desktop.ini
 
 # ----- Logs -----
 *.log
+
+# ----- Kaggle credentials (NUNCA subir al repositorio) -----
+kaggle.json
+.env
+.env.*
+
+# ----- data/external (recursos externos pesados) -----
+data/external/*
+!data/external/README.md

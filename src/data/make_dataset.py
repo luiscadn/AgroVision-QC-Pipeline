@@ -10,6 +10,32 @@ from src.data.preprocess import load_and_segment_fruit, get_traditional_features
 
 logger = setup_logger("AgroVision-MakeDataset")
 
+# ---------------------------------------------------------------------------
+# Importación diferida del script de descarga de Kaggle
+# (evita errores de importación si 'kaggle' aún no está instalado)
+# ---------------------------------------------------------------------------
+def _try_download_kaggle(raw_dir: str, force: bool = False) -> None:
+    """
+    Intenta invocar el descargador de Kaggle.
+    Si la librería 'kaggle' no está instalada o las credenciales no están
+    configuradas, emite un warning pero no detiene el pipeline.
+    """
+    try:
+        # Importación dinámica para no romper el resto del módulo
+        import importlib.util, sys
+        project_root = Path(__file__).resolve().parents[2]
+        script_path  = project_root / "scripts" / "download_kaggle_dataset.py"
+        spec = importlib.util.spec_from_file_location("download_kaggle_dataset", script_path)
+        mod  = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.download_dataset(force=force)
+    except Exception as e:
+        logger.warning(
+            f"No se pudo descargar el dataset de Kaggle automáticamente: {e}\n"
+            "  → Asegúrate de configurar tus credenciales y ejecutar:\n"
+            "    python scripts/download_kaggle_dataset.py"
+        )
+
 # Mapeo oficial de calidad requerido por el modelo CNN y ML
 QUALITY_MAP = {
     'buena': 0,
@@ -69,16 +95,36 @@ def get_stratified_split(class_images: list, train_ratio: float = 0.7, val_ratio
 def process_dataset(
     raw_dir: str = "data/raw",
     processed_dir: str = "data/processed",
-    processed_fruit_dir: str = "data/processed_fruit"
+    processed_fruit_dir: str = "data/processed_fruit",
+    force_download: bool = False
 ):
     """
     Orquestador para el procesamiento masivo de imágenes (Fase 3: CRISP-DM).
     Itera sobre los datos crudos, detecta las clases de calidad, aplica la lógica 
     de preprocesamiento, exporta las imágenes organizadas por calidad para la CNN 
     y genera el CSV con IDs numéricos para ML tradicional.
+
+    Si data/raw/ está vacío o se pasa force_download=True, descarga automáticamente
+    el dataset desde Kaggle (ryandpark/fruit-quality-classification) antes de procesar.
     """
     logger.info("Iniciando procesamiento masivo de datos (Make Dataset)...")
-    
+
+    # ── PASO 0: Descarga automática del dataset de Kaggle si data/raw/ está vacío ──
+    valid_exts = {'.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff'}
+    raw_path = Path(raw_dir)
+    raw_has_images = raw_path.exists() and any(
+        f.suffix.lower() in valid_exts for f in raw_path.rglob("*") if f.is_file()
+    )
+
+    if not raw_has_images or force_download:
+        logger.info(
+            "data/raw/ vacío o descarga forzada. "
+            "Iniciando descarga automática del dataset de Kaggle..."
+        )
+        _try_download_kaggle(raw_dir, force=force_download)
+    else:
+        logger.info(f"Datos crudos encontrados en '{raw_dir}'. Omitiendo descarga de Kaggle.")
+
     if not os.path.exists(raw_dir):
         logger.error(f"El directorio de origen {raw_dir} no existe. Por favor, asegúrate de colocar las imágenes crudas allí.")
         return
