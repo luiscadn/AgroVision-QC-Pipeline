@@ -1,151 +1,190 @@
+#!/usr/bin/env python3
+"""
+Modulo de preparacion de datos optimizado con Multiprocesamiento para AgroVision-QC-Pipeline.
+
+Este modulo realiza el preprocesamiento de las imagenes usando un pool de procesos
+en paralelo (ProcessPoolExecutor), permitiendo procesar grandes volumenes de imagenes
+(como el dataset de 10 GB) en una fraccion del tiempo original.
+"""
+
 import os
+import sys
+import time
 import cv2
-import numpy as np
 import pandas as pd
-import random
+import numpy as np
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+# Asegurar que el PYTHONPATH incluya la raiz del proyecto
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
 
 from src.utils.helpers import setup_logger
 from src.data.preprocess import load_and_segment_fruit, get_traditional_features
 
-logger = setup_logger("AgroVision-MakeDataset")
+logger = setup_logger("AgroVision-ParallelDataset")
 
-# Mapeo oficial de calidad requerido por el modelo CNN y ML
+# Mapeo oficial de calidad
 QUALITY_MAP = {
     'buena': 0,
     'media': 1,
     'mala': 2
 }
 
+
 def ensure_directories_exist(base_dir: str, classes: list, splits: list = ['train', 'val', 'test']):
-    """
-    Construye la estructura de carpetas requerida en el directorio de destino.
-    """
+    """Construye la estructura de carpetas de salida en data/processed."""
     for split in splits:
         for cls in classes:
             os.makedirs(os.path.join(base_dir, split, cls), exist_ok=True)
-            
-    # Garantizar que el directorio de resultados de experimentos exista
     os.makedirs("experiments/results", exist_ok=True)
 
+
 def get_stratified_split(class_images: list, train_ratio: float = 0.7, val_ratio: float = 0.15) -> dict:
-    """
-    Realiza una partición aleatoria estratificada a nivel de clase.
-    """
-    # Semilla fija para reproducibilidad
+    """Realiza una particion aleatoria estratificada a nivel de clase."""
+    import random
     random.seed(42)
-    random.shuffle(class_images)
+    shuffled_imgs = list(class_images)
+    random.shuffle(shuffled_imgs)
     
-    total = len(class_images)
+    total = len(shuffled_imgs)
     train_end = int(total * train_ratio)
     val_end = train_end + int(total * val_ratio)
     
     return {
-        'train': class_images[:train_end],
-        'val': class_images[train_end:val_end],
-        'test': class_images[val_end:]
+        'train': shuffled_imgs[:train_end],
+        'val': shuffled_imgs[train_end:val_end],
+        'test': shuffled_imgs[val_end:]
     }
 
-def process_dataset(raw_dir: str = "data/raw", processed_dir: str = "data/processed"):
+
+def process_single_image_worker(task):
+    """Funcion de trabajo (worker) que procesa una sola imagen.
+
+    Se ejecuta en un proceso independiente para evitar el bloqueo del GIL.
+    
+    Args:
+        task (tuple): (img_path, dest_path, quality_cls, label_id)
+        
+    Returns:
+        tuple: (feature_row, error_message)
     """
-    Orquestador para el procesamiento masivo de imágenes (Fase 3: CRISP-DM).
-    Itera sobre los datos crudos, detecta las clases de calidad, aplica la lógica 
-    de preprocesamiento, exporta las imágenes organizadas por calidad para la CNN 
-    y genera el CSV con IDs numéricos para ML tradicional.
+    img_path, dest_path, quality_cls, label_id = task
+    try:
+        # 1. Cargar y segmentar imagen
+        img_cropped, contour = load_and_segment_fruit(str(img_path))
+        
+        # 2. Redimensionar y guardar imagen procesada para CNN
+        img_resized = cv2.resize(img_cropped, (128, 128), interpolation=cv2.INTER_LINEAR)
+        img_bgr_to_save = cv2.cvtColor(img_resized, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(dest_path, img_bgr_to_save)
+        
+        # 3. Extraccion de caracteristicas tradicionales para ML
+        ml_features = get_traditional_features(img_cropped, contour)
+        feature_row = ml_features.tolist() + [label_id]
+        
+        return feature_row, None
+    except Exception as e:
+        return None, f"Error en {img_path.name}: {str(e)}"
+
+
+def process_dataset(raw_dir: str = "data/raw", processed_dir: str = "data/processed", max_workers: int = None, csv_path: str = "experiments/results/features_traditional_ml.csv"):
+    """Orquestador que paraleliza el procesamiento del dataset usando ProcessPoolExecutor.
+
+    Args:
+        raw_dir (str): Directorio de origen de imagenes crudas.
+        processed_dir (str): Directorio de destino para guardar las imagenes procesadas.
+        max_workers (int): Numero maximo de nucleos de CPU a utilizar (None para automatico).
+        csv_path (str): Ruta para exportar el archivo CSV de caracteristicas para ML tradicional.
     """
-    logger.info("Iniciando procesamiento masivo de datos (Make Dataset)...")
+    start_time = time.time()
+    logger.info("=== Iniciando Procesamiento del Dataset en Paralelo ===")
     
     if not os.path.exists(raw_dir):
-        logger.error(f"El directorio de origen {raw_dir} no existe. Por favor, asegúrate de colocar las imágenes crudas allí.")
+        logger.error(f"El directorio crudo {raw_dir} no existe.")
         return
 
-    # Definir las clases objetivo de calidad (buena, media, mala)
+    # Usar todos los cores disponibles si no se define max_workers
+    if max_workers is None:
+        max_workers = os.cpu_count()
+    logger.info(f"Configurando Pool con {max_workers} procesos de trabajo (CPU cores).")
+
     target_classes = list(QUALITY_MAP.keys())
-    
-    # Asegurarnos de tener las carpetas necesarias en data/processed organizadas por calidad
     ensure_directories_exist(processed_dir, target_classes)
     
-    # Matriz para ir acumulando todas las características para Scikit-Learn
-    all_tabular_features = []
-    
-    # Extensiones de imagen soportadas
+    # Recolectar imagenes
     valid_exts = {'.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff'}
-    
-    # Recolectar y agrupar todas las imágenes por su calidad (buena, media, mala)
-    # Soporta estructuras mixtas: data/raw/buena/manzana/img.jpg o data/raw/Manzana/buena_01.jpg
     images_by_quality = {cls: [] for cls in target_classes}
     
-    logger.info("Escaneando recursivamente el directorio de origen en búsqueda de clases de calidad...")
+    logger.info("Escaneando imagenes crudas recursivamente...")
     for path in Path(raw_dir).rglob('*'):
         if path.suffix.lower() in valid_exts:
             path_str = str(path).lower()
-            
-            # Inferir la clase de calidad analizando la ruta completa o el nombre del archivo
             if 'buena' in path_str:
                 images_by_quality['buena'].append(path)
             elif 'media' in path_str:
                 images_by_quality['media'].append(path)
             elif 'mala' in path_str:
                 images_by_quality['mala'].append(path)
-            else:
-                # Omitir imágenes cuya calidad no se puede determinar
-                pass
+
+    # Preparar lista de tareas para el Pool
+    tasks = []
+    total_images_scanned = 0
     
-    # Bucle por clase de calidad
     for quality_cls, images in images_by_quality.items():
         if not images:
-            logger.warning(f"No se encontraron imágenes detectadas para la clase de calidad '{quality_cls}'")
             continue
-            
-        logger.info(f"➤ Procesando clase de calidad '{quality_cls}' ({len(images)} imágenes registradas)...")
-        
-        # Realizar el split estratificado (70/15/15)
+        total_images_scanned += len(images)
+        logger.info(f"Clase '{quality_cls}': {len(images)} imagenes encontradas. Creando particiones estratificadas...")
         splits = get_stratified_split(images)
         
-        processed_count = {'train': 0, 'val': 0, 'test': 0}
-        error_count = 0
-        
-        # Iterar sobre las particiones
         for split_name, split_imgs in splits.items():
             for img_path in split_imgs:
-                # Usar un nombre único si hay colisiones (ej: prefijar con la carpeta padre)
                 img_name = f"{img_path.parent.name}_{img_path.name}"
                 dest_path = os.path.join(processed_dir, split_name, quality_cls, img_name)
-                
-                try:
-                    # 1. Ejecutar Fase A: Carga y Segmentación
-                    img_cropped, contour = load_and_segment_fruit(str(img_path))
-                    
-                    # 2. Contrato Deep Learning (Matthew): Guardar en disco la imagen procesada
-                    # Redimensionamos estáticamente a 128x128 tal como espera la CNN
-                    img_resized = cv2.resize(img_cropped, (128, 128), interpolation=cv2.INTER_LINEAR)
-                    
-                    # OpenCV trabaja con BGR por defecto. Convertimos RGB a BGR para guardar.
-                    img_bgr_to_save = cv2.cvtColor(img_resized, cv2.COLOR_RGB2BGR)
-                    cv2.imwrite(dest_path, img_bgr_to_save)
-                    
-                    # 3. Contrato ML Tradicional (Juanes): Extracción de Características
-                    ml_features = get_traditional_features(img_cropped, contour)
-                    
-                    # Transformar a lista de Python estándar y concatenar el ID de la etiqueta de calidad (0, 1, 2)
-                    label_id = QUALITY_MAP[quality_cls]
-                    feature_row = ml_features.tolist() + [label_id]
-                    all_tabular_features.append(feature_row)
-                    
-                    processed_count[split_name] += 1
-                    
-                except Exception as e:
-                    # Robustez: Manejar archivos corruptos o fallos de segmentación
-                    logger.error(f"Fallo aislado procesando imagen {img_path}: {str(e)}")
-                    error_count += 1
-                    
-        total_processed = sum(processed_count.values())
-        logger.info(f" Clase '{quality_cls}' completada. Procesadas: {total_processed}/{len(images)} (Train:{processed_count['train']} | Val:{processed_count['val']} | Test:{processed_count['test']} | Errores:{error_count})")
-        
-    # --- EXPORTAR MATRIZ DE DISEÑO PARA ML ---
-    csv_path = "experiments/results/features_traditional_ml.csv"
-    logger.info(f"Exportando matriz tabular de características a: {csv_path}")
+                label_id = QUALITY_MAP[quality_cls]
+                tasks.append((img_path, dest_path, quality_cls, label_id))
+
+    if not tasks:
+        logger.warning("No se encontraron imagenes para procesar en el directorio de origen.")
+        return
+
+    logger.info(f"Total de tareas de procesamiento en cola: {len(tasks)}")
     
+    # Ejecucion paralela
+    all_tabular_features = []
+    processed_count = 0
+    error_count = 0
+    
+    logger.info("Lanzando tareas en paralelo... Monitoreando progreso:")
+    
+    # Iniciar ejecucion paralela
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Enviar todas las tareas al pool
+        futures = {executor.submit(process_single_image_worker, task): task for task in tasks}
+        
+        # Procesar los resultados a medida que se completen
+        for i, future in enumerate(as_completed(futures)):
+            feature_row, error_msg = future.result()
+            
+            if error_msg:
+                error_count += 1
+                # Solo logear los primeros errores para no inundar la consola
+                if error_count <= 10:
+                    logger.warning(error_msg)
+            else:
+                processed_count += 1
+                all_tabular_features.append(feature_row)
+            
+            # Log de progreso cada 500 imagenes
+            if (i + 1) % 500 == 0 or (i + 1) == len(tasks):
+                elapsed = time.time() - start_time
+                speed = (i + 1) / elapsed
+                logger.info(f" -> Progreso: {i + 1}/{len(tasks)} procesadas ({((i + 1)/len(tasks))*100:.1f}%) | Velocidad: {speed:.2f} imgs/seg | Transcurrido: {elapsed:.1f}s")
+
+    # Exportar CSV de caracteristicas tradicionales
     headers = [
         'area', 'perimeter', 'aspect_ratio', 
         'h_mean', 's_mean', 'v_mean', 
@@ -153,14 +192,30 @@ def process_dataset(raw_dir: str = "data/raw", processed_dir: str = "data/proces
     ]
     
     try:
-        # Usamos pandas para una escritura y estructura de datos óptima
         df_features = pd.DataFrame(all_tabular_features, columns=headers)
         df_features.to_csv(csv_path, index=False, encoding='utf-8')
-        logger.info(f"Exportación de CSV completada. Registros exportados: {len(df_features)}")
+        logger.info(f"Matriz tabular exportada correctamente a: '{csv_path}' con {len(df_features)} registros.")
     except Exception as e:
-        logger.error(f"Ocurrió un error crítico exportando el archivo CSV: {str(e)}")
-        
-    logger.info("== PROCESAMIENTO MASIVO FINALIZADO EXITOSAMENTE ==")
+        logger.error(f"Error escribiendo el CSV de resultados: {str(e)}")
+
+    total_time = time.time() - start_time
+    logger.info("=== Procesamiento Finalizado ===")
+    logger.info(f" Total procesadas con éxito: {processed_count}")
+    logger.info(f" Total fallidas: {error_count}")
+    logger.info(f" Tiempo total de ejecucion: {total_time:.2f} segundos")
+    logger.info(f" Rendimiento promedio del sistema: {processed_count / total_time:.2f} imagenes por segundo")
+    logger.info("=================================")
+
 
 if __name__ == "__main__":
-    process_dataset()
+    # Si se ejecuta con el argumento --pilot, corre sobre la prueba piloto de calidad "media"
+    if len(sys.argv) > 1 and sys.argv[1] == "--pilot":
+        logger.info("Modo Piloto detectado. Procesando la subcarpeta 'src/data/raw/media'...")
+        process_dataset(
+            raw_dir="src/data/raw/media",
+            processed_dir="data/processed_pilot",
+            csv_path="experiments/results/features_traditional_ml_pilot.csv"
+        )
+    else:
+        # Por defecto corre sobre la estructura de produccion completa
+        process_dataset()

@@ -94,3 +94,5 @@ cython_debug/
 Thumbs.db
 /data
 processed_Fruits.zip
+src/data/raw/
+

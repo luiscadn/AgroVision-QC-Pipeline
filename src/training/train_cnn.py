@@ -1,5 +1,6 @@
 import os
 import json
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -164,10 +165,24 @@ def train_cnn(
     )
 
     # ------------------------------------------------------------------
-    # 3. Modelo, función de pérdida y optimizador
+    # 3. Modelo, función de pérdida balanceada y optimizador
     # ------------------------------------------------------------------
+    # Obtener el dataset del DataLoader para calcular el desbalance de clases
+    train_dataset = train_loader.dataset
+    targets = np.array(train_dataset.targets)
+    class_counts = np.bincount(targets)
+    total_samples = len(targets)
+    
+    # Calcular pesos con frecuencia inversa: weight_c = Total_Samples / (Num_Classes * Samples_c)
+    class_weights = total_samples / (num_classes * class_counts)
+    class_weights_tensor = torch.tensor(class_weights, dtype=torch.float32)
+    
+    logger.info(f"Frecuencias de clase en entrenamiento: {dict(zip(class_names, class_counts))}")
+    logger.info(f"Pesos de balanceo calculados (Frecuencia Inversa): {dict(zip(class_names, class_weights.tolist()))}")
+
     model = FruitQualityCNN(num_classes=num_classes).to(device)
-    criterion = nn.CrossEntropyLoss()
+    # Aplicar la penalización de gradientes de forma matemática mediante el tensor de pesos
+    criterion = nn.CrossEntropyLoss(weight=class_weights_tensor.to(device))
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     # Scheduler: reduce el lr si el val_loss no mejora en 5 épocas

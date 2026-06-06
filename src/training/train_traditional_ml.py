@@ -75,7 +75,7 @@ def train_traditional_ml(
         'kernel': ['linear', 'rbf'],
         'gamma': ['scale', 'auto']
     }
-    svm_grid = GridSearchCV(SVC(probability=True, random_state=42), svm_param_grid, cv=3, n_jobs=-1, verbose=1)
+    svm_grid = GridSearchCV(SVC(probability=True, random_state=42, class_weight="balanced"), svm_param_grid, cv=3, n_jobs=-1, verbose=1)
     svm_grid.fit(X_train_scaled, y_train)
     
     best_svm = svm_grid.best_estimator_
@@ -102,7 +102,7 @@ def train_traditional_ml(
         'max_depth': [10, 20, None],
         'min_samples_split': [2, 5]
     }
-    rf_grid = GridSearchCV(RandomForestClassifier(random_state=42), rf_param_grid, cv=3, n_jobs=-1, verbose=1)
+    rf_grid = GridSearchCV(RandomForestClassifier(random_state=42, class_weight="balanced"), rf_param_grid, cv=3, n_jobs=-1, verbose=1)
     rf_grid.fit(X_train, y_train)  # Árboles no requieren escalado
     
     best_rf = rf_grid.best_estimator_
