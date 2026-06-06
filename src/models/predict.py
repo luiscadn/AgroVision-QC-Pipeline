@@ -20,8 +20,9 @@ QUALITY_LABELS = {
 FRUIT_LABELS = {
     0: "manzana",
     1: "banano",
-    2: "tomate",
-    3: "papa",
+    2: "guayaba",
+    3: "limon",
+    4: "naranja",
 }
 
 def load_pickle(path: str | Path):
