@@ -17,7 +17,7 @@ env/
 .env.*
 
 # ----- Model checkpoints & serialized models -----
-*.pth
+
 *.pt
 *.pkl
 *.h5
