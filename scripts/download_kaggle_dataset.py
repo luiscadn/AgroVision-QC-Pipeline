@@ -67,7 +67,7 @@ def _check_credentials() -> None:
     if not (username and key) and not kaggle_json.exists():
         raise EnvironmentError(
             "\n\n"
-            "  ❌  No se encontraron credenciales de la API de Kaggle.\n\n"
+            "   No se encontraron credenciales de la API de Kaggle.\n\n"
             "  Tienes dos opciones para configurarlas:\n\n"
             "  ── Opción A (recomendada): archivo .env en la raíz del proyecto ──\n"
             "     Crea el archivo .env con el siguiente contenido:\n"
@@ -122,7 +122,7 @@ def download_dataset(force: bool = False) -> bool:
         from kaggle.api.kaggle_api_extended import KaggleApi
     except ImportError:
         raise ImportError(
-            "\n  ❌  La librería 'kaggle' no está instalada.\n"
+            "\n    La librería 'kaggle' no está instalada.\n"
             "  Instálala con:\n"
             "      pip install kaggle\n"
         )

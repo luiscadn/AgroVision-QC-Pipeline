@@ -6,24 +6,31 @@ import pandas as pd
 import torch
 import pickle
 from PIL import Image
+from torchvision import transforms
 from src.data.preprocess import load_and_segment_fruit, get_traditional_features
 from src.models.cnn_model import FruitQualityCNN
+from src.models.fruit_classifier import load_fruit_classifier
 
 
 # Clases de calidad
+# ⚠️ IMPORTANTE: ImageFolder ordena las carpetas alfabéticamente.
+# Orden real en training: buena=0, mala=1, media=2
 QUALITY_LABELS = {
     0: "buena",
-    1: "media",
-    2: "mala",
+    1: "mala",
+    2: "media",
 }
-#Clases de 
+
+# Clases de fruta
+# ⚠️ IMPORTANTE: ImageFolder ordena alfabéticamente las carpetas.
+# Orden real: banano=0, granada=1, guayaba=2, limon=3, manzana=4, naranja=5
 FRUIT_LABELS = {
-    0: "manzana",
-    1: "banano",
+    0: "banano",
+    1: "granada",
     2: "guayaba",
     3: "limon",
-    4: "naranja",
-    5: "granada",
+    4: "manzana",
+    5: "naranja",
 }
 
 def load_pickle(path: str | Path):
@@ -37,7 +44,7 @@ def load_cnn(
     model_pah = "experiments/checkpoints/best_model.pth",
     num_classes = 3,
     device: Optional[str] = None,
-)-> Tuple[FruitQualityCNN, torch.device]:
+) -> Tuple[FruitQualityCNN, torch.device]:
     # Acá ya cargamos el checkpoint de la CNN entrenada
     selected_device = torch.device("cpu")
     model_pah = Path(model_pah)
@@ -87,13 +94,23 @@ def predict_fruit_type_from_features(
     model_path: str | Path = "experiments/checkpoints/fruit_type_model.pkl",
     scaler_path: str | Path = "experiments/checkpoints/scaler_ml.pkl",
 ) -> Dict[str, object]:
-    #Predice qué fruta usando características tradicionales
+    """Predice qué fruta usando características tradicionales.
+    Si el modelo pkl no existe, devuelve 'desconocida' en vez de lanzar error.
+    """
+    model_path = Path(model_path)
+    if not model_path.exists():
+        # Fallback cuando no hay modelo de tipo de fruta entrenado
+        return {
+            "fruit": "desconocida",
+            "fruit_id": -1,
+            "fruit_confidence": None,
+            "fruit_probabilities": None,
+        }
 
     model = load_pickle(model_path)
-
     input_features = features.reshape(1, -1)
 
-    model_name = Path(model_path).name.lower()
+    model_name = model_path.name.lower()
     if "svm" in model_name:
         s_path = Path("experiments/checkpoints/scaler_fruit.pkl")
         if not s_path.exists():
@@ -121,7 +138,7 @@ def predict_fruit_type_from_features(
         "fruit_probabilities": probabilities,
     }
 
-# Aquí hacemos la predición usando un modelo tradicional
+# Aquí hacemos la predicción usando un modelo tradicional
 def predict_with_TraditionalML(
         image_path,
         model_path = "experiments/checkpoints/random_forest_model.pkl",
@@ -158,7 +175,7 @@ def predict_with_TraditionalML(
     
     size_result = estimate_size(features)
 
-    return{
+    return {
         "model_type": "traditional_ml",
         "model_path": str(model_path),
         "quality": QUALITY_LABELS.get(predicted_id, str(predicted_id)),
@@ -174,75 +191,90 @@ def predict_with_CNN(
         model_path = "experiments/checkpoints/best_model.pth",
         fruit_model_path = "experiments/checkpoints/best_fruit_model.pth",
         device: Optional[str] = None,
-    )-> Dict[str, object]:
-        #Predecimos la calidad usando la CNN que ya teníamos entrenada
-        image_path = Path(image_path)
-        if not image_path.exists():
-            raise FileNotFoundError(f"No se encontró el checkpoint para CNN en: {image_path}")
-        
-        model, selected_device = load_cnn(model_pah = model_path, device=device)
-        image = Image.open(image_path).convert("RGB").resize((128,128))
-        image_array = np.asarray(image, dtype=np.float32) / 255.0
-        image_chw = np.transpose(image_array, (2,0,1))
-        tensor = torch.tensor(image_chw, dtype = torch.float32).unsqueeze(0).to(selected_device)
+) -> Dict[str, object]:
+    """Predice calidad (FruitQualityCNN 128x128) y tipo de fruta (MobileNetV2 224x224)."""
+    image_path = Path(image_path)
+    if not image_path.exists():
+        raise FileNotFoundError(f"No se encontró la imagen en: {image_path}")
+
+    selected_device = torch.device("cpu")
+
+    # ── 1. CALIDAD con FruitQualityCNN (128x128) ─────────────────────────────
+    model, _ = load_cnn(model_pah=model_path, device=device)
+
+    quality_transform = transforms.Compose([
+        transforms.Resize((128, 128)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    image_pil = Image.open(image_path).convert("RGB")
+    quality_tensor = quality_transform(image_pil).unsqueeze(0).to(selected_device)
+
+    with torch.no_grad():
+        quality_logits = model(quality_tensor)
+        quality_probs  = torch.softmax(quality_logits, dim=1)[0]
+        predicted_id   = int(torch.argmax(quality_probs).item())
+
+    probabilities = {
+        QUALITY_LABELS[i]: float(quality_probs[i].cpu().item())
+        for i in range(len(QUALITY_LABELS))
+    }
+
+    # ── 2. TAMAÑO usando características clásicas ─────────────────────────────
+    img_cropped, contour = load_and_segment_fruit(str(image_path))
+    features = get_traditional_features(img_cropped, contour)
+    size_result = estimate_size(features)
+
+    # ── 3. TIPO DE FRUTA con MobileNetV2 (224x224) ───────────────────────────
+    fruit_model_path = Path(fruit_model_path)
+    if fruit_model_path.exists():
+        fruit_model = load_fruit_classifier(
+            checkpoint_path=str(fruit_model_path),
+            num_classes=6,
+            device=selected_device,
+        )
+
+        fruit_transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        fruit_tensor = fruit_transform(image_pil).unsqueeze(0).to(selected_device)
 
         with torch.no_grad():
-            logits = model(tensor)
-            probabilities_tensor = torch.softmax(logits, dim=1)[0]
-            predicted_id = int(torch.argmax(probabilities_tensor).item())
+            fruit_logits = fruit_model(fruit_tensor)
+            fruit_probs  = torch.softmax(fruit_logits, dim=1)[0]
+            fruit_id     = int(torch.argmax(fruit_probs).item())
 
-        probabilities = {
-            QUALITY_LABELS[index]: float(probabilities_tensor[index].cpu().item())
-            for index in range(len(QUALITY_LABELS))
+        fruit_result = {
+            "fruit": FRUIT_LABELS.get(fruit_id, str(fruit_id)),
+            "fruit_id": fruit_id,
+            "fruit_confidence": float(fruit_probs[fruit_id].cpu().item()),
+            "fruit_probabilities": {
+                FRUIT_LABELS.get(i, str(i)): float(fruit_probs[i].cpu().item())
+                for i in range(len(FRUIT_LABELS))
+            },
         }
-        img_cropped, contour = load_and_segment_fruit(str(image_path))
-        features = get_traditional_features(img_cropped, contour)
-        size_result = estimate_size(features)
+    else:
+        fruit_result = predict_fruit_type_from_features(features)
 
-        fruit_model_path = Path(fruit_model_path)
-        if fruit_model_path.exists():
-            fruit_model = FruitQualityCNN(num_classes=6).to(selected_device)
-            state_dict = torch.load(fruit_model_path, map_location=selected_device)
-            fruit_model.load_state_dict(state_dict)
-            fruit_model.eval()
-            
-            with torch.no_grad():
-                fruit_logits = fruit_model(tensor)
-                fruit_probs = torch.softmax(fruit_logits, dim=1)[0]
-                fruit_predicted_id = int(torch.argmax(fruit_probs).item())
-                
-            fruit_confidence = float(fruit_probs[fruit_predicted_id].cpu().item())
-            fruit_probabilities = {
-                FRUIT_LABELS.get(idx, str(idx)): float(fruit_probs[idx].cpu().item())
-                for idx in range(len(FRUIT_LABELS))
-            }
-            
-            fruit_result = {
-                "fruit": FRUIT_LABELS.get(fruit_predicted_id, str(fruit_predicted_id)),
-                "fruit_id": fruit_predicted_id,
-                "fruit_confidence": fruit_confidence,
-                "fruit_probabilities": fruit_probabilities,
-            }
-        else:
-            fruit_result = predict_fruit_type_from_features(features)
-
-        return {
-            "model_type": "cnn",
-            "model_path": str(model_path),
-            "quality": QUALITY_LABELS.get(predicted_id, str(predicted_id)),
-            "quality_id": predicted_id,
-            "confidence": float(probabilities_tensor[predicted_id].cpu().item()),
-            "probabilities": probabilities,
-            **size_result,
-            **fruit_result,
-        }
+    return {
+        "model_type": "cnn",
+        "model_path": str(model_path),
+        "quality": QUALITY_LABELS.get(predicted_id, str(predicted_id)),
+        "quality_id": predicted_id,
+        "confidence": float(quality_probs[predicted_id].cpu().item()),
+        "probabilities": probabilities,
+        **size_result,
+        **fruit_result,
+    }
 
 
 def predict_image(
     image_path: str | Path,
     model_type: str = "random_forest",
 ) -> Dict[str, object]:
-    #Aquí el tipo de modelo puede ser cualquiera ramdomF svm o cnn
+    # Aquí el tipo de modelo puede ser cualquiera: randomF, svm o cnn
     model_type = model_type.lower().strip()
 
     if model_type in {"random_forest", "rf"}:
@@ -262,5 +294,5 @@ def predict_image(
     raise ValueError("model_type debe ser 'random_forest', 'svm' o 'cnn'")
 
 if __name__ == "__main__":
-    result = predict_image("test_image.jpj", model_type="random_forest")
+    result = predict_image("test_image.jpg", model_type="cnn")
     print(result)
