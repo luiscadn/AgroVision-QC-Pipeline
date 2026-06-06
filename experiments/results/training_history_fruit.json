@@ -1,0 +1,26 @@
+{
+  "train_loss": [
+    0.9799,
+    0.6589
+  ],
+  "train_acc": [
+    63.59,
+    76.29
+  ],
+  "val_loss": [
+    0.5551,
+    0.412
+  ],
+  "val_acc": [
+    78.9,
+    84.31
+  ],
+  "class_names": [
+    "banano",
+    "granada",
+    "guayaba",
+    "limon",
+    "manzana",
+    "naranja"
+  ]
+}

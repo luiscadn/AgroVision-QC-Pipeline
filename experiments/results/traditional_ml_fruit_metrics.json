@@ -1,0 +1,19 @@
+{
+  "svm_fruit": {
+    "best_params": {
+      "C": 10,
+      "gamma": "auto",
+      "kernel": "rbf"
+    },
+    "accuracy": 0.9032009255688391
+  },
+  "random_forest_fruit": {
+    "best_params": {
+      "max_depth": 20,
+      "min_samples_split": 2,
+      "n_estimators": 200
+    },
+    "accuracy": 0.9294253760123409
+  },
+  "best_overall": "Random Forest"
+}

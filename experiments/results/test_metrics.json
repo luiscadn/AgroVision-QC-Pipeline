@@ -1,9 +1,9 @@
 {
-  "test_loss": 0.0747,
-  "accuracy_%": 97.77,
-  "precision_weighted_%": 97.77,
-  "recall_weighted_%": 97.77,
-  "f1_score_weighted_%": 97.76,
+  "test_loss": 0.1256,
+  "accuracy_%": 95.31,
+  "precision_weighted_%": 95.44,
+  "recall_weighted_%": 95.31,
+  "f1_score_weighted_%": 95.35,
   "num_test_images": 1300,
   "class_names": [
     "buena",
@@ -12,19 +12,19 @@
   ],
   "confusion_matrix": [
     [
-      396,
-      0,
-      4
-    ],
-    [
-      6,
-      197,
-      10
+      380,
+      13,
+      7
     ],
     [
       4,
-      5,
-      678
+      193,
+      16
+    ],
+    [
+      1,
+      20,
+      666
     ]
   ]
 }

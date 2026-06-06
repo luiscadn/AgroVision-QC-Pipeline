@@ -1,12 +1,59 @@
-# .gitignore generated to exclude large files preventing pushes
-# Model checkpoints (PyTorch, TensorFlow, etc.)
+# ================================================================
+# AgroVision-QC-Pipeline — .gitignore
+# ================================================================
+
+# ----- Python bytecode & cache -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+
+# ----- Virtual environments -----
+venv/
+.venv/
+env/
+.env
+.env.*
+
+# ----- Model checkpoints & serialized models -----
 *.pth
 *.pt
 *.pkl
-# Directory containing generated checkpoints
-experiments/checkpoints/
-# Large processed image data
+*.h5
+*.onnx
+*.model
+*.ckpt
+
+# ----- Experiment outputs (regenerables) -----
+
+
+# ----- Data directories (too large for Git) -----
+data/raw/
 data/processed/
 data/processed_fruit/
-# Optionally raw data (if not needed in repo)
-data/raw/
+data/processed_quality/
+
+# ----- Compressed archives -----
+*.zip
+*.tar.gz
+*.7z
+*.rar
+
+# ----- Jupyter Notebook checkpoints -----
+.ipynb_checkpoints/
+
+# ----- IDE / Editor -----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ----- OS files -----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ----- Logs -----
+*.log
