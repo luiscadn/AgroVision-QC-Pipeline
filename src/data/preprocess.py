@@ -154,6 +154,26 @@ def get_traditional_features(img_cropped: np.ndarray, contour: np.ndarray) -> np
     
     features.extend([h_mean, s_mean, v_mean, h_std, s_std, v_std])
     
+    # ----- CARACTERÍSTICAS ESPECÍFICAS DE PODREDUMBRE -----
+    # Para solucionar el overfitting de frutas que son completamente negras (donde la varianza es baja),
+    # calculamos el porcentaje absoluto de píxeles con bajo brillo (V < 50) que son parte de la fruta.
+    if contour is not None:
+        x, y, w, h = cv2.boundingRect(contour)
+        shifted_contour = contour - [x, y]
+        mask = np.zeros(img_cropped.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [shifted_contour], -1, 255, -1)
+        
+        # Extraer canales V sólo para la fruta
+        fruit_v = v_channel[mask == 255]
+        dark_pixels = np.sum(fruit_v < 60) # Umbral de oscuridad empírico
+        dark_pixel_ratio = float(dark_pixels) / max(len(fruit_v), 1)
+    else:
+        # Fallback
+        dark_pixels = np.sum(v_channel < 60)
+        dark_pixel_ratio = float(dark_pixels) / max(v_channel.size, 1)
+        
+    features.append(dark_pixel_ratio)
+    
     # Serialización en tensor unidimensional NumPy (dtype=float32 común en ML)
     feature_vector = np.array(features, dtype=np.float32)
     

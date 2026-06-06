@@ -194,7 +194,7 @@ def process_dataset(raw_dir: str = "data/raw", processed_dir: str = "data/proces
     headers = [
         'area', 'perimeter', 'aspect_ratio', 
         'h_mean', 's_mean', 'v_mean', 
-        'h_std', 's_std', 'v_std', 'label'
+        'h_std', 's_std', 'v_std', 'dark_pixel_ratio', 'label'
     ]
     
     try:
