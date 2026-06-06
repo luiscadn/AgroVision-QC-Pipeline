@@ -16,6 +16,14 @@ QUALITY_LABELS = {
     1: "media",
     2: "mala",
 }
+#Clases de 
+FRUIT_LABELS = {
+    0: "manzana",
+    1: "banano",
+    2: "guayaba",
+    3: "limon",
+    4: "naranja",
+}
 
 def load_pickle(path: str | Path):
     path = Path(path)
@@ -73,6 +81,42 @@ def estimate_size(
         "medium_limit_px": medium_limit,
     }
 
+def predict_fruit_type_from_features(
+    features: np.ndarray,
+    model_path: str | Path = "experiments/checkpoints/fruit_type_model.pkl",
+    scaler_path: str | Path = "experiments/checkpoints/scaler_ml.pkl",
+) -> Dict[str, object]:
+    #Predice qué fruta usando características tradicionales
+
+    model = load_pickle(model_path)
+
+    input_features = features.reshape(1, -1)
+
+    model_name = Path(model_path).name.lower()
+    if "svm" in model_name:
+        scaler = load_pickle(scaler_path)
+        input_features = scaler.transform(input_features)
+
+    predicted_id = int(model.predict(input_features)[0])
+
+    confidence = None
+    probabilities = None
+
+    if hasattr(model, "predict_proba"):
+        probabilities_array = model.predict_proba(input_features)[0]
+        probabilities = {
+            FRUIT_LABELS.get(int(class_id), str(class_id)): float(prob)
+            for class_id, prob in zip(model.classes_, probabilities_array)
+        }
+        confidence = float(np.max(probabilities_array))
+
+    return {
+        "fruit": FRUIT_LABELS.get(predicted_id, str(predicted_id)),
+        "fruit_id": predicted_id,
+        "fruit_confidence": confidence,
+        "fruit_probabilities": probabilities,
+    }
+
 # Aquí hacemos la predición usando un modelo tradicional
 def predict_with_TraditionalML(
         image_path,
@@ -86,6 +130,7 @@ def predict_with_TraditionalML(
     
     img_cropped, contour = load_and_segment_fruit(str(image_path))
     features = get_traditional_features(img_cropped, contour)
+    fruit_result = predict_fruit_type_from_features(features)
 
     model = load_pickle(model_path)
     input_features = features.reshape(1, -1)
@@ -117,6 +162,7 @@ def predict_with_TraditionalML(
         "confidence": confidence,
         "probabilities": probabilities,
         **size_result,
+        **fruit_result,
     }
 
 def predict_with_CNN(
@@ -146,6 +192,8 @@ def predict_with_CNN(
         }
         img_cropped, contour = load_and_segment_fruit(str(image_path))
         features = get_traditional_features(img_cropped, contour)
+
+        fruit_result = predict_fruit_type_from_features(features)
         size_result = estimate_size(features)
 
         return {
@@ -156,7 +204,9 @@ def predict_with_CNN(
             "confidence": float(probabilities_tensor[predicted_id].cpu().item()),
             "probabilities": probabilities,
             **size_result,
+            **fruit_result,
         }
+
 
 def predict_image(
     image_path: str | Path,

@@ -112,6 +112,7 @@ if image_file is not None:
                 result = predict_image(temp_path, model_type=model_option)
             
             st.subheader("Resultado")
+            st.success(f"Fruta detectada: **{result['fruit'].upper()}**")
             st.success(f"Calidad estimada: **{result['quality'].upper()}**")
             st.info(f"Tamaño estimado: **{result['size'].upper()}**")
             st.write(f"Área segmentada: `{result['area_px']:.2f}` px")
