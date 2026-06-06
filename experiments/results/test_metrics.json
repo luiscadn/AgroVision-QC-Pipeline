@@ -1,10 +1,10 @@
 {
-  "test_loss": 0.1066,
-  "accuracy_%": 96.72,
-  "precision_weighted_%": 96.73,
-  "recall_weighted_%": 96.72,
-  "f1_score_weighted_%": 96.72,
-  "num_test_images": 1431,
+  "test_loss": 0.1121,
+  "accuracy_%": 96.64,
+  "precision_weighted_%": 96.66,
+  "recall_weighted_%": 96.64,
+  "f1_score_weighted_%": 96.65,
+  "num_test_images": 1756,
   "class_names": [
     "buena",
     "mala",
@@ -18,13 +18,13 @@
     ],
     [
       5,
-      318,
-      15
+      420,
+      19
     ],
     [
-      1,
-      21,
-      671
+      2,
+      28,
+      882
     ]
   ]
 }
