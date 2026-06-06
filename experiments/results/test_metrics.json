@@ -1,10 +1,10 @@
 {
-  "test_loss": 0.0747,
-  "accuracy_%": 97.77,
-  "precision_weighted_%": 97.77,
-  "recall_weighted_%": 97.77,
-  "f1_score_weighted_%": 97.76,
-  "num_test_images": 1300,
+  "test_loss": 0.1066,
+  "accuracy_%": 96.72,
+  "precision_weighted_%": 96.73,
+  "recall_weighted_%": 96.72,
+  "f1_score_weighted_%": 96.72,
+  "num_test_images": 1431,
   "class_names": [
     "buena",
     "mala",
@@ -12,19 +12,19 @@
   ],
   "confusion_matrix": [
     [
-      396,
-      0,
-      4
-    ],
-    [
-      6,
-      197,
-      10
-    ],
-    [
+      395,
       4,
+      1
+    ],
+    [
       5,
-      678
+      318,
+      15
+    ],
+    [
+      1,
+      21,
+      671
     ]
   ]
 }

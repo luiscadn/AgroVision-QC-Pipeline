@@ -103,8 +103,14 @@ def process_dataset(raw_dir: str = "data/raw", processed_dir: str = "data/proces
     logger.info("=== Iniciando Procesamiento del Dataset en Paralelo ===")
     
     if not os.path.exists(raw_dir):
-        logger.error(f"El directorio crudo {raw_dir} no existe.")
-        return
+        # Intentar con src/data/raw como contingencia
+        fallback_dir = os.path.join("src", "data", "raw")
+        if os.path.exists(fallback_dir):
+            logger.info(f"Directorio '{raw_dir}' no encontrado. Utilizando fallback: '{fallback_dir}'")
+            raw_dir = fallback_dir
+        else:
+            logger.error(f"El directorio crudo {raw_dir} no existe en la raíz ni en '{fallback_dir}'.")
+            return
 
     # Usar todos los cores disponibles si no se define max_workers
     if max_workers is None:

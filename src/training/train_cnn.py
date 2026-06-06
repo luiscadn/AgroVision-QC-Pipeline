@@ -151,9 +151,9 @@ def train_cnn(
     os.makedirs(results_dir, exist_ok=True)
 
     # ------------------------------------------------------------------
-    # 1. Dispositivo de cómputo (GPU si está disponible, si no CPU)
+    # 1. Dispositivo de cómputo (GPU/MPS si está disponible, si no CPU)
     # ------------------------------------------------------------------
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
     logger.info(f"Dispositivo de entrenamiento: {device}")
 
     # ------------------------------------------------------------------

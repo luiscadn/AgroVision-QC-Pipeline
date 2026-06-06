@@ -5,14 +5,14 @@
       "gamma": "scale",
       "kernel": "rbf"
     },
-    "accuracy": 0.9660624758966448
+    "accuracy": 0.942907180385289
   },
   "random_forest": {
     "best_params": {
       "max_depth": 20,
-      "min_samples_split": 2,
-      "n_estimators": 200
+      "min_samples_split": 5,
+      "n_estimators": 100
     },
-    "accuracy": 0.9633629001156961
+    "accuracy": 0.9576182136602451
   }
 }
