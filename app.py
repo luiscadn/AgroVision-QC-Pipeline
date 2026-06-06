@@ -114,7 +114,7 @@ if image_file is not None:
             st.subheader("Resultado")
             st.success(f"Fruta detectada: **{result['fruit'].upper()}**")
             st.success(f"Calidad estimada: **{result['quality'].upper()}**")
-            st.info(f"Tamaño estimado: **{result['size'].upper()}**")
+            st.info(f"Tamaño estimado: **{result['size'].upper()}** | Diámetro estimado: **{result['diameter']:.1f}** px")
             st.write(f"Área segmentada: `{result['area_px']:.2f}` px")
 
             if result.get("confidence") is not None:

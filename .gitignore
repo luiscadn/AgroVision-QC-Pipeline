@@ -33,6 +33,11 @@ data/raw/
 data/processed/
 data/processed_fruit/
 data/processed_quality/
+src/data/raw/
+**/raw/
+**/processed/
+**/processed_fruit/
+**/processed_quality/
 
 # ----- Compressed archives -----
 *.zip

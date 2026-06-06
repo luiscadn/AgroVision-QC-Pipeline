@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import torch
 import pickle
+import cv2
+import streamlit as st
 from PIL import Image
 from src.data.preprocess import load_and_segment_fruit, get_traditional_features
 from src.models.cnn_model import FruitQualityCNN
@@ -26,6 +28,7 @@ FRUIT_LABELS = {
     5: "granada",
 }
 
+@st.cache_resource
 def load_pickle(path: str | Path):
     path = Path(path)
     if not path.exists():
@@ -33,6 +36,7 @@ def load_pickle(path: str | Path):
     with open(path, "rb") as file:
         return pickle.load(file)
 
+@st.cache_resource
 def load_cnn(
     model_pah = "experiments/checkpoints/best_model.pth",
     num_classes = 3,
@@ -136,6 +140,14 @@ def predict_with_TraditionalML(
     features = get_traditional_features(img_cropped, contour)
     fruit_result = predict_fruit_type_from_features(features)
 
+    # Calcular el diámetro
+    if contour is not None:
+        x, y, w, h = cv2.boundingRect(contour)
+        diameter = float(max(w, h))
+    else:
+        h_img, w_img = img_cropped.shape[:2]
+        diameter = float(max(w_img, h_img))
+
     model = load_pickle(model_path)
     input_features = features.reshape(1, -1)
 
@@ -165,6 +177,7 @@ def predict_with_TraditionalML(
         "quality_id": predicted_id,
         "confidence": confidence,
         "probabilities": probabilities,
+        "diameter": diameter,
         **size_result,
         **fruit_result,
     }
@@ -199,12 +212,17 @@ def predict_with_CNN(
         features = get_traditional_features(img_cropped, contour)
         size_result = estimate_size(features)
 
+        # Calcular el diámetro
+        if contour is not None:
+            x, y, w, h = cv2.boundingRect(contour)
+            diameter = float(max(w, h))
+        else:
+            h_img, w_img = img_cropped.shape[:2]
+            diameter = float(max(w_img, h_img))
+
         fruit_model_path = Path(fruit_model_path)
         if fruit_model_path.exists():
-            fruit_model = FruitQualityCNN(num_classes=6).to(selected_device)
-            state_dict = torch.load(fruit_model_path, map_location=selected_device)
-            fruit_model.load_state_dict(state_dict)
-            fruit_model.eval()
+            fruit_model, _ = load_cnn(model_pah=fruit_model_path, num_classes=6, device=device)
             
             with torch.no_grad():
                 fruit_logits = fruit_model(tensor)
@@ -233,6 +251,7 @@ def predict_with_CNN(
             "quality_id": predicted_id,
             "confidence": float(probabilities_tensor[predicted_id].cpu().item()),
             "probabilities": probabilities,
+            "diameter": diameter,
             **size_result,
             **fruit_result,
         }
