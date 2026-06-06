@@ -41,7 +41,7 @@ def train_traditional_ml(
     logger.info(f"Cargando características desde {features_csv}...")
     df = pd.read_csv(features_csv)
     
-    X = df.drop(columns=['label']).values
+    X = df.drop(columns=['label', 'fruit_label'], errors='ignore').values
     y = df['label'].values
 
     # Mapeo de etiquetas numéricas a nombres legibles
@@ -144,6 +144,98 @@ def train_traditional_ml(
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2, ensure_ascii=False)
     logger.info(f"Métricas de ML tradicional guardadas en: {metrics_path}")
+    
+    # ------------------------------------------------------------------
+    # ENTRENAMIENTO DE CLASIFICACIÓN DE TIPO DE FRUTA
+    # ------------------------------------------------------------------
+    logger.info("\n" + "=" * 60)
+    logger.info("   Entrenamiento de Clasificadores de Tipo de Fruta (Tabular)")
+    logger.info("=" * 60)
+
+    # 1. Extraer objetivo de fruta
+    y_fruit = df['fruit_label'].values
+    
+    # Nombres de clase de fruta
+    fruit_class_names = ['manzana', 'banano', 'guayaba', 'limon', 'naranja', 'granada']
+    
+    # Partición Estratificada para fruta
+    X_train_f, X_test_f, y_train_f, y_test_f = train_test_split(
+        X, y_fruit, test_size=0.3, random_state=42, stratify=y_fruit
+    )
+    
+    # Escalar para SVM de frutas
+    scaler_fruit = StandardScaler()
+    X_train_f_scaled = scaler_fruit.fit_transform(X_train_f)
+    X_test_f_scaled = scaler_fruit.transform(X_test_f)
+    
+    # Guardar escalador de fruta
+    scaler_fruit_path = os.path.join(checkpoints_dir, "scaler_fruit.pkl")
+    with open(scaler_fruit_path, 'wb') as f:
+        pickle.dump(scaler_fruit, f)
+    logger.info(f"Escalador de fruta guardado en: {scaler_fruit_path}")
+    
+    # Entrenar SVM de frutas
+    logger.info("\n--- Entrenando SVM para Tipo de Fruta ---")
+    svm_param_grid = {
+        'C': [0.1, 1, 10],
+        'kernel': ['linear', 'rbf'],
+        'gamma': ['scale', 'auto']
+    }
+    svm_grid_f = GridSearchCV(SVC(probability=True, random_state=42), svm_param_grid, cv=3, n_jobs=-1, verbose=1)
+    svm_grid_f.fit(X_train_f_scaled, y_train_f)
+    best_svm_f = svm_grid_f.best_estimator_
+    acc_svm_f = accuracy_score(y_test_f, best_svm_f.predict(X_test_f_scaled))
+    logger.info(f"Accuracy SVM Fruta en Test: {acc_svm_f:.4f}")
+    
+    # Entrenar RF de frutas
+    logger.info("\n--- Entrenando Random Forest para Tipo de Fruta ---")
+    rf_param_grid = {
+        'n_estimators': [50, 100, 200],
+        'max_depth': [10, 20, None],
+        'min_samples_split': [2, 5]
+    }
+    rf_grid_f = GridSearchCV(RandomForestClassifier(random_state=42), rf_param_grid, cv=3, n_jobs=-1, verbose=1)
+    rf_grid_f.fit(X_train_f, y_train_f)
+    best_rf_f = rf_grid_f.best_estimator_
+    acc_rf_f = accuracy_score(y_test_f, best_rf_f.predict(X_test_f))
+    logger.info(f"Accuracy Random Forest Fruta en Test: {acc_rf_f:.4f}")
+    
+    # Guardar el MEJOR modelo para tipo de fruta
+    if acc_rf_f >= acc_svm_f:
+        best_fruit_model = best_rf_f
+        best_model_name = "Random Forest"
+        logger.info(f"El mejor modelo de fruta fue Random Forest (Acc: {acc_rf_f:.4f})")
+    else:
+        best_fruit_model = best_svm_f
+        best_model_name = "SVM"
+        logger.info(f"El mejor modelo de fruta fue SVM (Acc: {acc_svm_f:.4f})")
+        
+    fruit_model_path = os.path.join(checkpoints_dir, "fruit_type_model.pkl")
+    with open(fruit_model_path, 'wb') as f:
+        pickle.dump(best_fruit_model, f)
+    logger.info(f"Modelo de fruta guardado en: {fruit_model_path}")
+    
+    # Guardar matrices de confusión y métricas en JSON
+    _save_confusion_matrix(y_test_f, best_svm_f.predict(X_test_f_scaled), fruit_class_names, os.path.join(results_dir, "confusion_matrix_fruit_svm.png"), "SVM - Tipo de Fruta")
+    _save_confusion_matrix(y_test_f, best_rf_f.predict(X_test_f), fruit_class_names, os.path.join(results_dir, "confusion_matrix_fruit_rf.png"), "Random Forest - Tipo de Fruta")
+    
+    # Guardar métricas en JSON
+    fruit_metrics = {
+        "svm_fruit": {
+            "best_params": svm_grid_f.best_params_,
+            "accuracy": float(acc_svm_f)
+        },
+        "random_forest_fruit": {
+            "best_params": rf_grid_f.best_params_,
+            "accuracy": float(acc_rf_f)
+        },
+        "best_overall": best_model_name
+    }
+    
+    fruit_metrics_path = os.path.join(results_dir, "traditional_ml_fruit_metrics.json")
+    with open(fruit_metrics_path, "w", encoding="utf-8") as f:
+        json.dump(fruit_metrics, f, indent=2, ensure_ascii=False)
+    logger.info(f"Métricas de ML fruta guardadas en: {fruit_metrics_path}")
     logger.info("=" * 60)
 
 def _save_confusion_matrix(y_true, y_pred, class_names, output_path, model_name):

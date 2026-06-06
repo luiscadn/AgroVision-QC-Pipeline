@@ -23,6 +23,7 @@ FRUIT_LABELS = {
     2: "guayaba",
     3: "limon",
     4: "naranja",
+    5: "granada",
 }
 
 def load_pickle(path: str | Path):
@@ -94,7 +95,10 @@ def predict_fruit_type_from_features(
 
     model_name = Path(model_path).name.lower()
     if "svm" in model_name:
-        scaler = load_pickle(scaler_path)
+        s_path = Path("experiments/checkpoints/scaler_fruit.pkl")
+        if not s_path.exists():
+            s_path = Path(scaler_path)
+        scaler = load_pickle(s_path)
         input_features = scaler.transform(input_features)
 
     predicted_id = int(model.predict(input_features)[0])
@@ -168,6 +172,7 @@ def predict_with_TraditionalML(
 def predict_with_CNN(
         image_path,
         model_path = "experiments/checkpoints/best_model.pth",
+        fruit_model_path = "experiments/checkpoints/best_fruit_model.pth",
         device: Optional[str] = None,
     )-> Dict[str, object]:
         #Predecimos la calidad usando la CNN que ya teníamos entrenada
@@ -192,9 +197,34 @@ def predict_with_CNN(
         }
         img_cropped, contour = load_and_segment_fruit(str(image_path))
         features = get_traditional_features(img_cropped, contour)
-
-        fruit_result = predict_fruit_type_from_features(features)
         size_result = estimate_size(features)
+
+        fruit_model_path = Path(fruit_model_path)
+        if fruit_model_path.exists():
+            fruit_model = FruitQualityCNN(num_classes=6).to(selected_device)
+            state_dict = torch.load(fruit_model_path, map_location=selected_device)
+            fruit_model.load_state_dict(state_dict)
+            fruit_model.eval()
+            
+            with torch.no_grad():
+                fruit_logits = fruit_model(tensor)
+                fruit_probs = torch.softmax(fruit_logits, dim=1)[0]
+                fruit_predicted_id = int(torch.argmax(fruit_probs).item())
+                
+            fruit_confidence = float(fruit_probs[fruit_predicted_id].cpu().item())
+            fruit_probabilities = {
+                FRUIT_LABELS.get(idx, str(idx)): float(fruit_probs[idx].cpu().item())
+                for idx in range(len(FRUIT_LABELS))
+            }
+            
+            fruit_result = {
+                "fruit": FRUIT_LABELS.get(fruit_predicted_id, str(fruit_predicted_id)),
+                "fruit_id": fruit_predicted_id,
+                "fruit_confidence": fruit_confidence,
+                "fruit_probabilities": fruit_probabilities,
+            }
+        else:
+            fruit_result = predict_fruit_type_from_features(features)
 
         return {
             "model_type": "cnn",

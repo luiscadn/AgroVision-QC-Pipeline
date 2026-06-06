@@ -17,6 +17,26 @@ QUALITY_MAP = {
     'mala': 2
 }
 
+# Mapeo oficial de tipo de fruta
+FRUIT_MAP = {
+    'apple': 0,
+    'banana': 1,
+    'guava': 2,
+    'lime': 3,
+    'orange': 4,
+    'pomegranate': 5
+}
+
+# Traducción de prefijo de fruta a nombre legible en español
+FRUIT_TRANSLATION = {
+    'apple': 'manzana',
+    'banana': 'banano',
+    'guava': 'guayaba',
+    'lime': 'limon',
+    'orange': 'naranja',
+    'pomegranate': 'granada'
+}
+
 def ensure_directories_exist(base_dir: str, classes: list, splits: list = ['train', 'val', 'test']):
     """
     Construye la estructura de carpetas requerida en el directorio de destino.
@@ -46,7 +66,11 @@ def get_stratified_split(class_images: list, train_ratio: float = 0.7, val_ratio
         'test': class_images[val_end:]
     }
 
-def process_dataset(raw_dir: str = "data/raw", processed_dir: str = "data/processed"):
+def process_dataset(
+    raw_dir: str = "data/raw",
+    processed_dir: str = "data/processed",
+    processed_fruit_dir: str = "data/processed_fruit"
+):
     """
     Orquestador para el procesamiento masivo de imágenes (Fase 3: CRISP-DM).
     Itera sobre los datos crudos, detecta las clases de calidad, aplica la lógica 
@@ -64,6 +88,10 @@ def process_dataset(raw_dir: str = "data/raw", processed_dir: str = "data/proces
     
     # Asegurarnos de tener las carpetas necesarias en data/processed organizadas por calidad
     ensure_directories_exist(processed_dir, target_classes)
+    
+    # Asegurarnos de tener las carpetas necesarias en data/processed_fruit organizadas por fruta
+    target_fruits = list(FRUIT_TRANSLATION.values())
+    ensure_directories_exist(processed_fruit_dir, target_fruits)
     
     # Matriz para ir acumulando todas las características para Scikit-Learn
     all_tabular_features = []
@@ -112,6 +140,13 @@ def process_dataset(raw_dir: str = "data/raw", processed_dir: str = "data/proces
                 img_name = f"{img_path.parent.name}_{img_path.name}"
                 dest_path = os.path.join(processed_dir, split_name, quality_cls, img_name)
                 
+                # Obtener prefijo del tipo de fruta a partir del nombre original
+                fruit_prefix = img_path.name.split('_')[0].lower()
+                fruit_cls = FRUIT_TRANSLATION.get(fruit_prefix, 'desconocido')
+                dest_fruit_path = None
+                if fruit_cls != 'desconocido':
+                    dest_fruit_path = os.path.join(processed_fruit_dir, split_name, fruit_cls, img_name)
+                
                 try:
                     # 1. Ejecutar Fase A: Carga y Segmentación
                     img_cropped, contour = load_and_segment_fruit(str(img_path))
@@ -124,12 +159,16 @@ def process_dataset(raw_dir: str = "data/raw", processed_dir: str = "data/proces
                     img_bgr_to_save = cv2.cvtColor(img_resized, cv2.COLOR_RGB2BGR)
                     cv2.imwrite(dest_path, img_bgr_to_save)
                     
+                    if dest_fruit_path:
+                        cv2.imwrite(dest_fruit_path, img_bgr_to_save)
+                    
                     # 3. Contrato ML Tradicional (Juanes): Extracción de Características
                     ml_features = get_traditional_features(img_cropped, contour)
                     
                     # Transformar a lista de Python estándar y concatenar el ID de la etiqueta de calidad (0, 1, 2)
                     label_id = QUALITY_MAP[quality_cls]
-                    feature_row = ml_features.tolist() + [label_id]
+                    fruit_label_id = FRUIT_MAP.get(fruit_prefix, -1)
+                    feature_row = ml_features.tolist() + [label_id, fruit_label_id]
                     all_tabular_features.append(feature_row)
                     
                     processed_count[split_name] += 1
@@ -149,7 +188,7 @@ def process_dataset(raw_dir: str = "data/raw", processed_dir: str = "data/proces
     headers = [
         'area', 'perimeter', 'aspect_ratio', 
         'h_mean', 's_mean', 'v_mean', 
-        'h_std', 's_std', 'v_std', 'label'
+        'h_std', 's_std', 'v_std', 'label', 'fruit_label'
     ]
     
     try:

@@ -7,7 +7,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.utils.helpers import setup_logger
 from src.data.make_dataset import process_dataset
 from src.training.train_cnn import train_cnn
-from src.evaluation.evaluate import evaluate_model
+from src.training.train_fruit_cnn import train_fruit_cnn
+from src.evaluation.evaluate import evaluate_model, evaluate_fruit_model
 from src.data.extract_dataset import extract_and_structure_zip
 
 logger = setup_logger("AgroVision-Main")
@@ -19,10 +20,12 @@ CHECKPOINTS_DIR = "experiments/checkpoints"
 RESULTS_DIR = "experiments/results"
 
 # Hiperparámetros de entrenamiento
-EPOCHS = 20
+EPOCHS = 2  # Limitado a 2 épocas para entrenamiento rápido
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 NUM_CLASSES = 3  # buena, media, mala
+FRUIT_PROCESSED_DIR = "data/processed_fruit"
+FRUIT_NUM_CLASSES = 6
 
 
 def _processed_data_exists(processed_dir: str) -> bool:
@@ -57,14 +60,14 @@ def main():
     # ------------------------------------------------------------------
     logger.info("\n[Fase 1] Verificando datos procesados...")
 
-    if _processed_data_exists(PROCESSED_DIR):
+    if _processed_data_exists(PROCESSED_DIR) and _processed_data_exists(FRUIT_PROCESSED_DIR):
         logger.info(
-            f"Los datos procesados ya existen en '{PROCESSED_DIR}'. "
+            f"Los datos procesados ya existen en '{PROCESSED_DIR}' y '{FRUIT_PROCESSED_DIR}'. "
             "Se omite el preprocesamiento."
         )
     else:
         logger.info(
-            f"No se encontraron datos procesados en '{PROCESSED_DIR}'."
+            f"No se encontraron datos procesados completos."
         )
         
         # Intentar extraer desde un ZIP en la raíz si existe
@@ -81,12 +84,12 @@ def main():
             sys.exit(1)
             
         logger.info(f"Iniciando preprocesamiento desde '{RAW_DIR}'...")
-        process_dataset(raw_dir=RAW_DIR, processed_dir=PROCESSED_DIR)
+        process_dataset(raw_dir=RAW_DIR, processed_dir=PROCESSED_DIR, processed_fruit_dir=FRUIT_PROCESSED_DIR)
 
     # ------------------------------------------------------------------
     # FASE 2: Entrenamiento de la CNN con datos reales
     # ------------------------------------------------------------------
-    logger.info("\n[Fase 2] Entrenando la CNN con datos reales...")
+    logger.info("\n[Fase 2] Entrenando la CNN de Calidad con datos reales...")
     history = train_cnn(
         processed_dir=PROCESSED_DIR,
         checkpoints_dir=CHECKPOINTS_DIR,
@@ -97,22 +100,16 @@ def main():
         num_classes=NUM_CLASSES
     )
 
-    # Diagnóstico rápido de overfitting en consola
-    if len(history["train_loss"]) > 1:
-        last_train_loss = history["train_loss"][-1]
-        last_val_loss = history["val_loss"][-1]
-        gap = last_val_loss - last_train_loss
-        if gap > 0.3:
-            logger.warning(
-                f"Posible SOBREAJUSTE detectado: Val Loss ({last_val_loss:.4f}) supera "
-                f"Train Loss ({last_train_loss:.4f}) por {gap:.4f}. "
-                "Considera aumentar la intensidad de Data Augmentation o añadir más Dropout."
-            )
-        else:
-            logger.info(
-                f"Sin señales claras de sobreajuste "
-                f"(Train Loss: {last_train_loss:.4f} | Val Loss: {last_val_loss:.4f})."
-            )
+    logger.info("\n[Fase 2a] Entrenando la CNN de Tipo de Fruta...")
+    history_fruit = train_fruit_cnn(
+        processed_dir=FRUIT_PROCESSED_DIR,
+        checkpoints_dir=CHECKPOINTS_DIR,
+        results_dir=RESULTS_DIR,
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        learning_rate=LEARNING_RATE,
+        num_classes=FRUIT_NUM_CLASSES
+    )
 
     # ------------------------------------------------------------------
     # FASE 2b: Entrenamiento de Modelos de ML Tradicionales
@@ -128,13 +125,22 @@ def main():
     # ------------------------------------------------------------------
     # FASE 3: Evaluación en el Conjunto de Prueba
     # ------------------------------------------------------------------
-    logger.info("\n[Fase 3] Evaluando el modelo en el conjunto de prueba (test)...")
+    logger.info("\n[Fase 3] Evaluando el modelo de calidad CNN en el conjunto de prueba...")
     metrics = evaluate_model(
         processed_dir=PROCESSED_DIR,
         checkpoints_dir=CHECKPOINTS_DIR,
         results_dir=RESULTS_DIR,
         batch_size=BATCH_SIZE,
         num_classes=NUM_CLASSES
+    )
+
+    logger.info("\n[Fase 3a] Evaluando el modelo de fruta CNN en el conjunto de prueba...")
+    metrics_fruit = evaluate_fruit_model(
+        processed_dir=FRUIT_PROCESSED_DIR,
+        checkpoints_dir=CHECKPOINTS_DIR,
+        results_dir=RESULTS_DIR,
+        batch_size=BATCH_SIZE,
+        num_classes=FRUIT_NUM_CLASSES
     )
 
     # ------------------------------------------------------------------
@@ -144,15 +150,14 @@ def main():
     logger.info("         RESUMEN FINAL DEL PIPELINE")
     logger.info("=" * 60)
     logger.info("  [DEEP LEARNING - CNN]")
-    logger.info(f"    Accuracy en Test:        {metrics['accuracy_%']:.2f}%")
-    logger.info(f"    Checkpoint:              {CHECKPOINTS_DIR}/best_model.pth")
-    logger.info(f"    Curvas de aprendizaje:   {RESULTS_DIR}/learning_curves.png")
-    logger.info(f"    Matriz de confusión CNN: {RESULTS_DIR}/confusion_matrix.png")
-    logger.info(f"    Métricas JSON:           {RESULTS_DIR}/test_metrics.json")
+    logger.info(f"    Quality Accuracy en Test:  {metrics['accuracy_%']:.2f}%")
+    logger.info(f"    Fruit Type Accuracy:       {metrics_fruit['accuracy_%']:.2f}%")
+    logger.info(f"    Checkpoint Calidad:        {CHECKPOINTS_DIR}/best_model.pth")
+    logger.info(f"    Checkpoint Fruta:          {CHECKPOINTS_DIR}/best_fruit_model.pth")
+    logger.info(f"    Curvas de aprendizaje:     {RESULTS_DIR}/learning_curves.png, {RESULTS_DIR}/learning_curves_fruit.png")
     logger.info("  [MACHINE LEARNING TRADICIONAL]")
-    logger.info(f"    Modelos (SVM, RF):       {CHECKPOINTS_DIR}/svm_model.pkl, {CHECKPOINTS_DIR}/random_forest_model.pkl")
-    logger.info(f"    Matrices Confusión ML:   {RESULTS_DIR}/confusion_matrix_svm.png, {RESULTS_DIR}/confusion_matrix_rf.png")
-    logger.info(f"    Métricas JSON ML:        {RESULTS_DIR}/traditional_ml_metrics.json")
+    logger.info(f"    Modelos Calidad (SVM, RF): {CHECKPOINTS_DIR}/svm_model.pkl, {CHECKPOINTS_DIR}/random_forest_model.pkl")
+    logger.info(f"    Modelo Fruta (ML):         {CHECKPOINTS_DIR}/fruit_type_model.pkl")
     logger.info("=" * 60)
     logger.info("Pipeline completado exitosamente.")
 

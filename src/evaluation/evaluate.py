@@ -236,3 +236,118 @@ def evaluate_model(
     logger.info(f"Métricas del test guardadas en: {metrics_path}")
 
     return metrics
+
+
+def evaluate_fruit_model(
+    processed_dir: str = "data/processed_fruit",
+    checkpoints_dir: str = "experiments/checkpoints",
+    results_dir: str = "experiments/results",
+    batch_size: int = 32,
+    num_classes: int = 6
+):
+    """
+    Evalúa el rendimiento definitivo de la CNN de frutas entrenada
+    sobre el conjunto de prueba (data/processed_fruit/test).
+    """
+    os.makedirs(results_dir, exist_ok=True)
+    checkpoint_path = os.path.join(checkpoints_dir, "best_fruit_model.pth")
+
+    if not os.path.isfile(checkpoint_path):
+        raise FileNotFoundError(
+            f"No se encontró el checkpoint de frutas en '{checkpoint_path}'."
+        )
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Dispositivo de evaluación de frutas: {device}")
+
+    test_dir = os.path.join(processed_dir, "test")
+    if not os.path.isdir(test_dir):
+        raise FileNotFoundError(
+            f"El directorio de prueba '{test_dir}' no existe."
+        )
+
+    test_dataset = ImageFolder(root=test_dir, transform=val_transforms)
+    if len(test_dataset) == 0:
+        raise RuntimeError(
+            f"No se encontraron imágenes en '{test_dir}'."
+        )
+
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0
+    )
+
+    class_names = test_dataset.classes
+    logger.info(f"Clases de fruta en test: {class_names}")
+    logger.info(f"Total imágenes de prueba de fruta: {len(test_dataset)}")
+
+    model = FruitQualityCNN(num_classes=num_classes).to(device)
+    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+    model.eval()
+    logger.info(f"Modelo de fruta cargado desde: {checkpoint_path}")
+
+    criterion = nn.CrossEntropyLoss()
+    all_preds = []
+    all_labels = []
+    running_loss = 0.0
+
+    with torch.no_grad():
+        for images, labels in test_loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            running_loss += loss.item() * images.size(0)
+            _, predicted = torch.max(outputs, 1)
+
+            all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    test_loss = running_loss / len(test_dataset)
+    all_preds = np.array(all_preds)
+    all_labels = np.array(all_labels)
+
+    accuracy = accuracy_score(all_labels, all_preds) * 100
+    precision = precision_score(all_labels, all_preds, average="weighted", zero_division=0) * 100
+    recall = recall_score(all_labels, all_preds, average="weighted", zero_division=0) * 100
+    f1 = f1_score(all_labels, all_preds, average="weighted", zero_division=0) * 100
+
+    cm = confusion_matrix(all_labels, all_preds)
+    report = classification_report(
+        all_labels, all_preds,
+        target_names=class_names,
+        zero_division=0
+    )
+
+    logger.info("=" * 60)
+    logger.info("MÉTRICAS FINALES DE LA CNN DE FRUTAS EN TEST")
+    logger.info("=" * 60)
+    logger.info(f"  Test Loss:        {test_loss:.4f}")
+    logger.info(f"  Accuracy:         {accuracy:.2f}%")
+    logger.info(f"  Precision (W):    {precision:.2f}%")
+    logger.info(f"  Recall (W):       {recall:.2f}%")
+    logger.info(f"  F1-Score (W):     {f1:.2f}%")
+    logger.info("-" * 60)
+    logger.info("Reporte por clase de fruta:\n" + report)
+
+    cm_path = os.path.join(results_dir, "confusion_matrix_fruit_cnn.png")
+    _save_confusion_matrix(cm, class_names, output_path=cm_path)
+
+    metrics = {
+        "test_loss": round(test_loss, 4),
+        "accuracy_%": round(accuracy, 2),
+        "precision_weighted_%": round(precision, 2),
+        "recall_weighted_%": round(recall, 2),
+        "f1_score_weighted_%": round(f1, 2),
+        "num_test_images": len(test_dataset),
+        "class_names": class_names,
+        "confusion_matrix": cm.tolist()
+    }
+
+    metrics_path = os.path.join(results_dir, "fruit_test_metrics.json")
+    with open(metrics_path, "w", encoding="utf-8") as f:
+        json.dump(metrics, f, indent=2, ensure_ascii=False)
+    logger.info(f"Métricas de frutas del test guardadas en: {metrics_path}")
+
+    return metrics
