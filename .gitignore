@@ -19,7 +19,7 @@ env/
 # ----- Model checkpoints & serialized models -----
 
 *.pt
-*.pkl
+
 *.h5
 *.onnx
 *.model
